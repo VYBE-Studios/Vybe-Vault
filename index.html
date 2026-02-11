@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VYBE Vault | Premium Creator Assets</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="home" class="is-locked">
+    <div class="global-bg" aria-hidden="true">
+      <span class="glow glow-1"></span>
+      <span class="glow glow-2"></span>
+      <span class="glow glow-3"></span>
+    </div>
+
+    <div id="loader" class="loader-screen" aria-live="polite">
+      <div class="loader-content">
+        <div class="loader-terminal">
+          <div class="loader-top">
+            <div class="loader-dots">
+              <span class="loader-dot"></span>
+              <span class="loader-dot"></span>
+              <span class="loader-dot loader-dot-accent"></span>
+            </div>
+            <div class="loader-chip">SECURE NODE</div>
+          </div>
+          <div class="loader-title">VYBE VAULT</div>
+          <div class="loader-lines">
+            <span>Boot sequence initiated...</span>
+            <span>Handshake: creator-verified</span>
+            <span>Decrypting access keys...</span>
+            <div class="loader-status">
+              STATUS: <span data-status>Locking perimeter</span><span class="loader-cursor"></span>
+            </div>
+          </div>
+          <div class="loader-progress">
+            <span class="loader-bar"></span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="unlock-btn">Unlock The Vault</button>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <nav class="nav container">
+        <a class="logo" href="index.html">VYBE Vault</a>
+        <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div class="nav-links">
+          <a href="assets.html">Assets</a>
+          <a href="pricing.html">Pricing</a>
+          <a href="upload.html">Upload</a>
+          <a href="account.html">Account</a>
+          <a href="refund.html">Refund</a>
+        </div>
+        <div class="nav-cta">
+          <a class="btn btn-primary" href="pricing.html">Get Premium</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero fade-in">
+        <div class="container">
+          <div style="opacity:0.7;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;">
+            Create Without Limits.
+          </div>
+          <h1>Your Assets, Reimagined.</h1>
+          <p>Upload, sell, and download premium creator assets in seconds.</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="assets.html">Browse Assets</a>
+            <a class="btn btn-outline" href="pricing.html">View Pricing</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section fade-in">
+        <div class="container">
+          <div class="section-title">
+            <h2>Designed for elite creator workflows</h2>
+            <p>VYBE Vault blends instant access, tiered value, and creator-first monetization.</p>
+          </div>
+          <div class="card-grid">
+            <div class="card">
+              <div class="feature-title">Instant Downloads</div>
+              <p class="feature-text">
+                Deliver assets instantly with high-speed access across every subscription tier.
+              </p>
+            </div>
+            <div class="card">
+              <div class="feature-title">Tier-Based Access</div>
+              <p class="feature-text">
+                Unlock advanced content based on plan level for a premium, gated experience.
+              </p>
+            </div>
+            <div class="card">
+              <div class="feature-title">Creator Monetization</div>
+              <p class="feature-text">
+                Upload, price, and scale your digital inventory with full creator control.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <div class="logo">VYBE Vault</div>
+          <div style="opacity:0.7;">Create Without Limits.</div>
+        </div>
+        <div class="footer-links">
+          <a href="privacy.html">Privacy</a>
+          <a href="tos.html">Terms</a>
+          <a href="refund.html">Refund Policy</a>
+        </div>
+      </div>
+    </footer>
+
+    <div class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
