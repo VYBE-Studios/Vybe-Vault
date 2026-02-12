@@ -46,7 +46,7 @@
           Creator Upload
         </div>
         <h1>Publish premium assets instantly.</h1>
-        <p>Only Creator+ and Creator++ members can upload assets.</p>
+        <p>Only accounts with the Upload role can publish new assets.</p>
       </section>
 
       <section class="section fade-in" style="padding-top:20px;">
@@ -71,11 +71,14 @@
               </select>
             </div>
             <div class="input-field">
-              <label for="file">File Upload (demo)</label>
-              <input id="file" name="file" type="file" />
+              <label for="file">Asset File</label>
+              <input id="file" name="file" type="file" required />
+              <div style="opacity:0.6;font-size:12px;">
+                Supports AE presets, videos, PNGs, project files, and more.
+              </div>
             </div>
             <div class="input-field">
-              <label for="preview">Preview Image Upload</label>
+              <label for="preview">Preview Image Upload (optional)</label>
               <input id="preview" name="preview" type="file" accept="image/*" />
             </div>
           </div>
@@ -99,6 +102,7 @@
     </footer>
 
     <div class="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

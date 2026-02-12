@@ -1,16 +1,10 @@
-/* VYBE Vault Demo App */
-/* Security note: localStorage is demo-only. Real apps require a backend + database. */
-/* Security note: role verification must be enforced server-side. */
+/* VYBE Vault Client */
 
-const STORAGE_KEYS = {
-  user: "vybeVaultUser",
-  users: "vybeVaultUsers",
-  assets: "vybeVaultAssets"
-};
+const SESSION_KEY = "vybeVaultSession";
 
 const ROLES = {
   USER: "USER",
-  CREATOR: "CREATOR",
+  UPLOAD: "UPLOAD",
   ADMIN: "ADMIN"
 };
 
@@ -26,144 +20,61 @@ const TIER_ACCESS = {
   [TIERS.CreatorPlusPlus]: [TIERS.Creator, TIERS.CreatorPlus, TIERS.CreatorPlusPlus]
 };
 
-const ADMIN_SEED = {
-  username: "admin",
-  role: ROLES.ADMIN,
-  tier: TIERS.CreatorPlusPlus
-};
+const FALLBACK_PREVIEW = `data:image/svg+xml;utf8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#0B0B12"/>
+        <stop offset="100%" stop-color="#1C1230"/>
+      </linearGradient>
+    </defs>
+    <rect width="640" height="360" rx="26" fill="url(#g)"/>
+    <rect x="36" y="36" width="568" height="288" rx="20" fill="none" stroke="#9B6BFF" stroke-opacity="0.3"/>
+    <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="22" fill="#E9D5FF" opacity="0.8">
+      VYBE Vault
+    </text>
+  </svg>
+`)}`;
 
-function createPreviewSvg(title, accent) {
-  const safeTitle = title.length > 22 ? `${title.slice(0, 22)}...` : title;
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
-      <defs>
-        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="${accent}" stop-opacity="0.75" />
-          <stop offset="100%" stop-color="#2C1A58" stop-opacity="0.9" />
-        </linearGradient>
-      </defs>
-      <rect width="640" height="360" rx="24" fill="#0C0A12" />
-      <rect x="32" y="32" width="576" height="296" rx="20" fill="url(#grad)" opacity="0.7" />
-      <circle cx="90" cy="90" r="36" fill="#9B6BFF" opacity="0.75" />
-      <circle cx="560" cy="270" r="48" fill="#7C3AED" opacity="0.75" />
-      <text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle"
-        font-family="Inter, Arial, sans-serif" font-size="28" fill="#F7F3E7" font-weight="700">
-        ${safeTitle}
-      </text>
-      <text x="50%" y="70%" dominant-baseline="middle" text-anchor="middle"
-        font-family="Inter, Arial, sans-serif" font-size="14" fill="#D8D1C3" opacity="0.85">
-        VYBE Vault Asset Preview
-      </text>
-    </svg>
-  `;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+function getConfig() {
+  const url = window.VYBE_SUPABASE_URL || window.location.origin;
+  const anonKey = window.VYBE_SUPABASE_ANON_KEY || "";
+  const assetsBucket = window.VYBE_SUPABASE_BUCKET || "assets";
+  const previewsBucket = window.VYBE_SUPABASE_PREVIEW_BUCKET || "previews";
+  return {
+    url: url.replace(/\/$/, ""),
+    anonKey,
+    restBase: `${url.replace(/\/$/, "")}/rest/v1`,
+    storageBase: `${url.replace(/\/$/, "")}/storage/v1`,
+    assetsBucket,
+    previewsBucket
+  };
 }
 
-const SEED_ASSETS = [
-  {
-    id: "asset-001",
-    name: "Neon Launch Intro",
-    description: "Bold opening sequence for creator trailers.",
-    tier: TIERS.Creator,
-    price: "Included with membership",
-    preview: createPreviewSvg("Neon Launch Intro", "#9B6BFF"),
-    downloads: 0
-  },
-  {
-    id: "asset-002",
-    name: "Momentum Chart Kit",
-    description: "High-end chart animations for premium dashboards.",
-    tier: TIERS.CreatorPlus,
-    price: "Included with membership",
-    preview: createPreviewSvg("Momentum Chart Kit", "#7C3AED"),
-    downloads: 0
-  },
-  {
-    id: "asset-003",
-    name: "Vault UI Panels",
-    description: "Glassy panels with kinetic UI transitions.",
-    tier: TIERS.CreatorPlus,
-    price: "Included with membership",
-    preview: createPreviewSvg("Vault UI Panels", "#9B6BFF"),
-    downloads: 0
-  },
-  {
-    id: "asset-004",
-    name: "Elite Motion Toolkit",
-    description: "Premium motion curves and cinematic presets.",
-    tier: TIERS.CreatorPlusPlus,
-    price: "Included with membership",
-    preview: createPreviewSvg("Elite Motion Toolkit", "#4C1D95"),
-    downloads: 0
-  },
-  {
-    id: "asset-005",
-    name: "Creator Landing Kit",
-    description: "High-end landing sections for SaaS creators.",
-    tier: TIERS.Creator,
-    price: "Included with membership",
-    preview: createPreviewSvg("Creator Landing Kit", "#9B6BFF"),
-    downloads: 0
-  },
-  {
-    id: "asset-006",
-    name: "Deep Glow Transitions",
-    description: "Ultra smooth transitions with ambient glow.",
-    tier: TIERS.CreatorPlusPlus,
-    price: "Included with membership",
-    preview: createPreviewSvg("Deep Glow Transitions", "#7C3AED"),
-    downloads: 0
-  }
-];
+function encodePath(path) {
+  return path
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/")
+    .replace(/%2F/g, "/");
+}
 
-function getStored(key, fallback) {
-  const raw = localStorage.getItem(key);
-  if (!raw) return fallback;
+function getSession() {
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
   try {
     return JSON.parse(raw);
   } catch (error) {
-    return fallback;
+    return null;
   }
 }
 
-function setStored(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function seedData() {
-  const users = getStored(STORAGE_KEYS.users, []);
-  if (!users.find((user) => user.username === ADMIN_SEED.username)) {
-    users.push(ADMIN_SEED);
-    setStored(STORAGE_KEYS.users, users);
-  }
-  const assets = getStored(STORAGE_KEYS.assets, []);
-  if (!assets.length) {
-    setStored(STORAGE_KEYS.assets, SEED_ASSETS);
-  }
-}
-
-function getCurrentUser() {
-  return getStored(STORAGE_KEYS.user, null);
-}
-
-function setCurrentUser(user) {
-  if (!user) {
-    localStorage.removeItem(STORAGE_KEYS.user);
+function setSession(session) {
+  if (!session) {
+    localStorage.removeItem(SESSION_KEY);
     return;
   }
-  setStored(STORAGE_KEYS.user, user);
-}
-
-function roleForTier(tier) {
-  if (tier === TIERS.CreatorPlus || tier === TIERS.CreatorPlusPlus) {
-    return ROLES.CREATOR;
-  }
-  return ROLES.USER;
-}
-
-function hasTierAccess(userTier, assetTier) {
-  if (!userTier || !TIER_ACCESS[userTier]) return false;
-  return TIER_ACCESS[userTier].includes(assetTier);
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 function showToast(message) {
@@ -172,6 +83,109 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.add("show");
   window.setTimeout(() => toast.classList.remove("show"), 2200);
+}
+
+function supabaseHeaders(config) {
+  return {
+    apikey: config.anonKey,
+    Authorization: `Bearer ${config.anonKey}`
+  };
+}
+
+async function restRequest(path, options = {}) {
+  const config = getConfig();
+  if (!config.anonKey) {
+    throw new Error("Missing Supabase anon key.");
+  }
+
+  const headers = options.headers ? { ...options.headers } : {};
+  Object.assign(headers, supabaseHeaders(config));
+
+  const isBody = options.body !== undefined && options.body !== null;
+  const isFormData = options.body instanceof FormData;
+  if (isBody && !isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  if (options.preferReturn) {
+    headers["Prefer"] = "return=representation";
+  }
+
+  const response = await fetch(`${config.restBase}${path}`, {
+    ...options,
+    headers
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Request failed");
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+async function storageUpload(bucket, file, prefix = "") {
+  const config = getConfig();
+  if (!config.anonKey) {
+    throw new Error("Missing Supabase anon key.");
+  }
+
+  const fileExt = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+  const safeName = `${Date.now()}-${Math.round(Math.random() * 1e6)}.${fileExt}`;
+  const path = prefix ? `${prefix}/${safeName}` : safeName;
+
+  const response = await fetch(
+    `${config.storageBase}/object/${bucket}/${encodePath(path)}`,
+    {
+      method: "POST",
+      headers: {
+        ...supabaseHeaders(config),
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "true"
+      },
+      body: file
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Upload failed");
+  }
+
+  return path;
+}
+
+async function storageDownload(bucket, path, filename) {
+  const config = getConfig();
+  const response = await fetch(
+    `${config.storageBase}/object/${bucket}/${encodePath(path)}`,
+    {
+      method: "GET",
+      headers: supabaseHeaders(config)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Download failed");
+  }
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "vybe-vault-asset";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function publicPreviewUrl(bucket, path) {
+  const config = getConfig();
+  if (!path) return FALLBACK_PREVIEW;
+  return `${config.storageBase}/object/public/${bucket}/${encodePath(path)}`;
 }
 
 function initNav() {
@@ -223,31 +237,74 @@ function initHomeLoader() {
   unlockBtn.addEventListener("click", unlock);
 }
 
-function initPricingPage() {
+function hasTierAccess(userTier, assetTier) {
+  if (!userTier || !TIER_ACCESS[userTier]) return false;
+  return TIER_ACCESS[userTier].includes(assetTier);
+}
+
+async function fetchUserByUsername(username) {
+  const result = await restRequest(
+    `/users?select=id,username,role,tier&username=eq.${encodeURIComponent(username)}`,
+    { method: "GET" }
+  );
+  return result[0] || null;
+}
+
+async function createUser(username) {
+  const result = await restRequest("/users", {
+    method: "POST",
+    preferReturn: true,
+    body: JSON.stringify({
+      username,
+      role: ROLES.USER,
+      tier: TIERS.Creator
+    })
+  });
+  return result[0];
+}
+
+async function updateUser(id, payload) {
+  const result = await restRequest(`/users?id=eq.${id}`, {
+    method: "PATCH",
+    preferReturn: true,
+    body: JSON.stringify(payload)
+  });
+  return result[0];
+}
+
+async function fetchUsers() {
+  return restRequest("/users?select=id,username,role,tier&order=created_at.desc", {
+    method: "GET"
+  });
+}
+
+async function fetchAssets() {
+  return restRequest(
+    "/assets?select=id,name,description,tier,file_path,file_name,file_type,preview_path,uploader_id,created_at&order=created_at.desc",
+    { method: "GET" }
+  );
+}
+
+async function initPricingPage() {
   const buttons = document.querySelectorAll("[data-plan]");
   if (!buttons.length) return;
 
   buttons.forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const plan = button.getAttribute("data-plan");
-      const user = getCurrentUser();
-      if (!user) {
+      const session = getSession();
+      if (!session) {
         showToast("Login required to activate a plan.");
         return;
       }
-      const updatedUser = { ...user, tier: plan, role: roleForTier(plan) };
-      setCurrentUser(updatedUser);
-
-      const users = getStored(STORAGE_KEYS.users, []);
-      const index = users.findIndex((item) => item.username === user.username);
-      if (index >= 0) {
-        users[index] = updatedUser;
-      } else {
-        users.push(updatedUser);
+      try {
+        const updated = await updateUser(session.id, { tier: plan });
+        setSession(updated);
+        renderAccountSummary();
+        showToast(`Plan updated to ${plan}.`);
+      } catch (error) {
+        showToast("Unable to update plan.");
       }
-      setStored(STORAGE_KEYS.users, users);
-      showToast(`Plan updated to ${plan}.`);
-      renderAccountSummary();
     });
   });
 }
@@ -256,34 +313,27 @@ function initAccountPage() {
   const form = document.querySelector("#login-form");
   if (!form) return;
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const username = form.querySelector("input[name='username']").value.trim();
     if (!username) {
       showToast("Enter a username to continue.");
       return;
     }
-    const users = getStored(STORAGE_KEYS.users, []);
-    let user = users.find((item) => item.username.toLowerCase() === username.toLowerCase());
-    if (!user) {
-      user = { username, role: ROLES.USER, tier: TIERS.Creator };
-      users.push(user);
-      setStored(STORAGE_KEYS.users, users);
-    }
-    setCurrentUser(user);
-    form.reset();
-    renderAccountSummary();
-    showToast(`Welcome back, ${user.username}.`);
-  });
-
-  const logoutBtn = document.querySelector("#logout-btn");
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", () => {
-      setCurrentUser(null);
+    try {
+      let user = await fetchUserByUsername(username);
+      if (!user) {
+        user = await createUser(username);
+      }
+      setSession(user);
+      form.reset();
       renderAccountSummary();
-      showToast("Logged out.");
-    });
-  }
+      renderAdminPanel();
+      showToast(`Welcome back, ${user.username}.`);
+    } catch (error) {
+      showToast("Unable to sign in.");
+    }
+  });
 
   renderAccountSummary();
   renderAdminPanel();
@@ -293,110 +343,114 @@ function renderAccountSummary() {
   const summary = document.querySelector("#account-summary");
   const loginState = document.querySelector("#login-state");
   if (!summary || !loginState) return;
-  const user = getCurrentUser();
-  if (!user) {
+  const session = getSession();
+  if (!session) {
     summary.innerHTML = "";
     loginState.classList.remove("hidden");
-    renderAdminPanel();
     return;
   }
   loginState.classList.add("hidden");
   summary.innerHTML = `
     <div class="panel">
       <h2>Account Overview</h2>
-      <p><strong>Username:</strong> ${user.username}</p>
-      <p><strong>Role:</strong> ${user.role}</p>
-      <p><strong>Subscription:</strong> ${user.tier}</p>
+      <p><strong>Username:</strong> ${session.username}</p>
+      <p><strong>Role:</strong> ${session.role}</p>
+      <p><strong>Subscription:</strong> ${session.tier}</p>
       <button class="btn btn-outline" id="logout-btn">Logout</button>
     </div>
   `;
 
   const logoutBtn = summary.querySelector("#logout-btn");
   logoutBtn.addEventListener("click", () => {
-    setCurrentUser(null);
+    setSession(null);
     renderAccountSummary();
+    renderAdminPanel();
     showToast("Logged out.");
   });
-  renderAdminPanel();
 }
 
-function renderAdminPanel() {
+async function renderAdminPanel() {
   const panel = document.querySelector("#admin-panel");
   if (!panel) return;
-  const user = getCurrentUser();
-  if (!user || user.role !== ROLES.ADMIN) {
+  const session = getSession();
+  if (!session || session.role !== ROLES.ADMIN) {
     panel.innerHTML = "";
     return;
   }
 
-  const users = getStored(STORAGE_KEYS.users, []);
-  const rows = users
-    .map(
-      (item) => `
+  try {
+    const users = await fetchUsers();
+    const rows = users
+      .map(
+        (user) => `
         <div class="panel" style="margin-bottom:12px;">
           <div style="display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;">
             <div>
-              <strong>${item.username}</strong>
-              <div style="opacity:0.7;font-size:13px;">Role: ${item.role} | Tier: ${item.tier}</div>
+              <strong>${user.username}</strong>
+              <div style="opacity:0.7;font-size:13px;">Role: ${user.role} | Tier: ${user.tier}</div>
             </div>
             <div style="display:flex;gap:12px;flex-wrap:wrap;">
-              <select data-user="${item.username}" data-field="role">
+              <select data-user="${user.id}" data-field="role">
                 ${Object.values(ROLES)
-                  .map((role) => `<option value="${role}" ${role === item.role ? "selected" : ""}>${role}</option>`)
+                  .map((role) => `<option value="${role}" ${role === user.role ? "selected" : ""}>${role}</option>`)
                   .join("")}
               </select>
-              <select data-user="${item.username}" data-field="tier">
+              <select data-user="${user.id}" data-field="tier">
                 ${Object.values(TIERS)
-                  .map((tier) => `<option value="${tier}" ${tier === item.tier ? "selected" : ""}>${tier}</option>`)
+                  .map((tier) => `<option value="${tier}" ${tier === user.tier ? "selected" : ""}>${tier}</option>`)
                   .join("")}
               </select>
             </div>
           </div>
         </div>
       `
-    )
-    .join("");
+      )
+      .join("");
 
-  panel.innerHTML = `
-    <div class="panel">
-      <h2>Admin Role Manager</h2>
-      <p style="opacity:0.7;">Only ADMIN can assign roles or tiers.</p>
-      <div>${rows}</div>
-    </div>
-  `;
+    panel.innerHTML = `
+      <div class="panel">
+        <h2>Admin Role Manager</h2>
+        <p style="opacity:0.7;">Only ADMIN can assign roles or tiers.</p>
+        <div>${rows}</div>
+      </div>
+    `;
 
-  panel.querySelectorAll("select").forEach((select) => {
-    select.addEventListener("change", (event) => {
-      const field = event.target.getAttribute("data-field");
-      const username = event.target.getAttribute("data-user");
-      const usersList = getStored(STORAGE_KEYS.users, []);
-      const index = usersList.findIndex((item) => item.username === username);
-      if (index < 0) return;
-      usersList[index][field] = event.target.value;
-      setStored(STORAGE_KEYS.users, usersList);
-      if (getCurrentUser() && getCurrentUser().username === username) {
-        setCurrentUser(usersList[index]);
-      }
-      showToast("User updated.");
-      renderAccountSummary();
+    panel.querySelectorAll("select").forEach((select) => {
+      select.addEventListener("change", async (event) => {
+        const field = event.target.getAttribute("data-field");
+        const userId = event.target.getAttribute("data-user");
+        const value = event.target.value;
+        try {
+          const updated = await updateUser(userId, { [field]: value });
+          if (session.id === updated.id) {
+            setSession(updated);
+            renderAccountSummary();
+          }
+          showToast("User updated.");
+        } catch (error) {
+          showToast("Unable to update user.");
+        }
+      });
     });
-  });
+  } catch (error) {
+    panel.innerHTML = "";
+  }
 }
 
-function initUploadPage() {
+async function initUploadPage() {
   const state = document.querySelector("#upload-state");
   const form = document.querySelector("#upload-form");
   if (!state || !form) return;
 
-  const user = getCurrentUser();
-  if (!user) {
+  const session = getSession();
+  if (!session) {
     state.innerHTML = `<div class="status-message">Login required to upload assets.</div>`;
     form.classList.add("hidden");
     return;
   }
 
-  if (![ROLES.CREATOR, ROLES.ADMIN].includes(user.role)) {
-    state.innerHTML = `<div class="status-message">Upgrade to Creator+ or Creator++ to upload assets.</div>`;
+  if (![ROLES.UPLOAD, ROLES.ADMIN].includes(session.role)) {
+    state.innerHTML = `<div class="status-message">Upload role required to publish assets.</div>`;
     form.classList.add("hidden");
     return;
   }
@@ -404,7 +458,7 @@ function initUploadPage() {
   state.innerHTML = "";
   form.classList.remove("hidden");
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const name = form.querySelector("input[name='assetName']").value.trim();
     const description = form.querySelector("textarea[name='description']").value.trim();
@@ -412,90 +466,121 @@ function initUploadPage() {
     const previewInput = form.querySelector("input[name='preview']");
     const assetFile = form.querySelector("input[name='file']");
 
-    if (!name || !description || !tier) {
+    if (!name || !description || !tier || !assetFile.files[0]) {
       showToast("Complete all required fields.");
       return;
     }
 
-    const handleSave = (preview) => {
-      const assets = getStored(STORAGE_KEYS.assets, []);
-      const newAsset = {
-        id: `asset-${Date.now()}`,
-        name,
-        description,
-        tier,
-        price: "Included with membership",
-        fileName: assetFile.files[0] ? assetFile.files[0].name : "demo-file",
-        preview: preview || createPreviewSvg(name, "#9B6BFF"),
-        downloads: 0,
-        creator: user.username
-      };
-      assets.unshift(newAsset);
-      setStored(STORAGE_KEYS.assets, assets);
+    try {
+      const config = getConfig();
+      const filePath = await storageUpload(
+        config.assetsBucket,
+        assetFile.files[0],
+        `users/${session.id}`
+      );
+      const previewPath = previewInput.files[0]
+        ? await storageUpload(config.previewsBucket, previewInput.files[0], `users/${session.id}`)
+        : null;
+
+      await restRequest("/assets", {
+        method: "POST",
+        preferReturn: true,
+        body: JSON.stringify({
+          name,
+          description,
+          tier,
+          file_path: filePath,
+          file_name: assetFile.files[0].name,
+          file_type: assetFile.files[0].type || "application/octet-stream",
+          file_size: assetFile.files[0].size,
+          preview_path: previewPath,
+          uploader_id: session.id
+        })
+      });
+
       form.reset();
       showToast("Asset uploaded to VYBE Vault.");
-    };
-
-    if (previewInput.files && previewInput.files[0]) {
-      const reader = new FileReader();
-      reader.onload = (loadEvent) => handleSave(loadEvent.target.result);
-      reader.readAsDataURL(previewInput.files[0]);
-    } else {
-      handleSave(null);
+    } catch (error) {
+      showToast("Upload failed. Check your role and try again.");
     }
   });
 }
 
-function initAssetsPage() {
+async function initAssetsPage() {
   const grid = document.querySelector("#assets-grid");
+  const emptyState = document.querySelector("#assets-empty");
   if (!grid) return;
-  const assets = getStored(STORAGE_KEYS.assets, []);
-  const user = getCurrentUser();
-  const tier = user ? user.tier : null;
 
-  grid.innerHTML = assets
-    .map((asset, index) => {
-      const canAccess = hasTierAccess(tier, asset.tier);
-      const tierClass =
-        asset.tier === TIERS.CreatorPlusPlus
-          ? "tier-creator-plus-plus"
-          : asset.tier === TIERS.CreatorPlus
-          ? "tier-creator-plus"
-          : "tier-creator";
-      const buttonLabel = canAccess ? "Download" : "Upgrade Required";
-      const delay = `${index * 70}ms`;
-      const includedLabel = "Included with membership";
-      return `
-        <div class="asset-card fade-in" style="--delay:${delay}">
-          <div class="asset-preview">
-            <img src="${asset.preview}" alt="${asset.name}" />
-          </div>
-          <div>
-            <div class="asset-title">${asset.name}</div>
-            <div style="opacity:0.7;font-size:14px;">${asset.description}</div>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-            <span class="tier-badge ${tierClass}">${asset.tier}</span>
-            <span style="opacity:0.7;font-size:14px;">${includedLabel}</span>
-          </div>
-          <button class="btn btn-primary" ${canAccess ? "" : "disabled"} data-download="${asset.id}">
-            ${buttonLabel}
-          </button>
-        </div>
-      `;
-    })
-    .join("");
+  try {
+    const assets = await fetchAssets();
+    const session = getSession();
+    const tier = session ? session.tier : null;
+    const config = getConfig();
 
-  grid.querySelectorAll("[data-download]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (button.hasAttribute("disabled")) return;
-      showToast("Download started.");
+    if (!assets.length && emptyState) {
+      emptyState.classList.remove("hidden");
+    }
+
+    grid.innerHTML = assets
+      .map((asset, index) => {
+        const canAccess = hasTierAccess(tier, asset.tier);
+        const needsLogin = !session;
+        const tierClass =
+          asset.tier === TIERS.CreatorPlusPlus
+            ? "tier-creator-plus-plus"
+            : asset.tier === TIERS.CreatorPlus
+            ? "tier-creator-plus"
+            : "tier-creator";
+        const buttonLabel = needsLogin ? "Login Required" : canAccess ? "Download" : "Upgrade Required";
+        const delay = `${index * 70}ms`;
+        const preview = asset.preview_path
+          ? publicPreviewUrl(config.previewsBucket, asset.preview_path)
+          : FALLBACK_PREVIEW;
+        return `
+          <div class="asset-card fade-in" style="--delay:${delay}">
+            <div class="asset-preview">
+              <img src="${preview}" alt="${asset.name}" />
+            </div>
+            <div>
+              <div class="asset-title">${asset.name}</div>
+              <div style="opacity:0.7;font-size:14px;">${asset.description}</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+              <span class="tier-badge ${tierClass}">${asset.tier}</span>
+              <span style="opacity:0.7;font-size:14px;">Included with membership</span>
+            </div>
+            <button class="btn btn-primary" ${canAccess ? "" : "disabled"} data-download="${asset.id}">
+              ${buttonLabel}
+            </button>
+          </div>
+        `;
+      })
+      .join("");
+
+    grid.querySelectorAll("[data-download]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (button.hasAttribute("disabled")) return;
+        const id = button.getAttribute("data-download");
+        const asset = assets.find((item) => String(item.id) === String(id));
+        if (!asset) return;
+        try {
+          await storageDownload(config.assetsBucket, asset.file_path, asset.file_name);
+          showToast("Download started.");
+        } catch (error) {
+          showToast("Upgrade required to download.");
+        }
+      });
     });
-  });
+
+    initFadeIn();
+  } catch (error) {
+    if (emptyState) {
+      emptyState.classList.remove("hidden");
+    }
+  }
 }
 
 function initPage() {
-  seedData();
   initNav();
   initPricingPage();
   initAccountPage();
@@ -510,7 +595,3 @@ function initPage() {
 }
 
 document.addEventListener("DOMContentLoaded", initPage);
-
-function buyMeACoffeeWebhookHandler() {
-  /* Replace with real webhook endpoint for subscription role updates. */
-}
