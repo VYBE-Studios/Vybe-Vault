@@ -1,7 +1,5 @@
 /* VYBE Vault Client */
 
-const SESSION_KEY = "vybeVaultSession";
-
 const ROLES = {
   USER: "USER",
   UPLOAD: "UPLOAD",
@@ -59,22 +57,19 @@ function encodePath(path) {
     .replace(/%2F/g, "/");
 }
 
-function getSession() {
-  const raw = localStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    return null;
-  }
-}
+let supabaseClient = null;
+let currentProfile = null;
+let currentAuthUser = null;
+let currentAuthToken = null;
 
-function setSession(session) {
-  if (!session) {
-    localStorage.removeItem(SESSION_KEY);
-    return;
+function getSupabaseClient() {
+  if (supabaseClient) return supabaseClient;
+  const config = getConfig();
+  if (!window.supabase) {
+    throw new Error("Supabase client not loaded.");
   }
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+  return supabaseClient;
 }
 
 function showToast(message) {
@@ -86,9 +81,10 @@ function showToast(message) {
 }
 
 function supabaseHeaders(config) {
+  const token = currentAuthToken || config.anonKey;
   return {
     apikey: config.anonKey,
-    Authorization: `Bearer ${config.anonKey}`
+    Authorization: `Bearer ${token}`
   };
 }
 
@@ -242,25 +238,67 @@ function hasTierAccess(userTier, assetTier) {
   return TIER_ACCESS[userTier].includes(assetTier);
 }
 
-async function fetchUserByUsername(username) {
+function getDiscordDisplayName(user) {
+  const meta = user?.user_metadata || {};
+  return (
+    meta.full_name ||
+    meta.name ||
+    meta.user_name ||
+    meta.preferred_username ||
+    user?.email ||
+    `user-${user?.id?.slice(0, 6)}`
+  );
+}
+
+async function fetchUserByAuthId(authId) {
   const result = await restRequest(
-    `/users?select=id,username,role,tier&username=eq.${encodeURIComponent(username)}`,
+    `/users?select=id,username,role,tier,auth_id&auth_id=eq.${encodeURIComponent(authId)}`,
     { method: "GET" }
   );
   return result[0] || null;
 }
 
-async function createUser(username) {
-  const result = await restRequest("/users", {
-    method: "POST",
-    preferReturn: true,
-    body: JSON.stringify({
-      username,
-      role: ROLES.USER,
-      tier: TIERS.Creator
-    })
-  });
-  return result[0];
+async function ensureUserProfile(authUser) {
+  const authId = authUser.id;
+  const displayName = getDiscordDisplayName(authUser);
+  let user = await fetchUserByAuthId(authId);
+  if (!user) {
+    const created = await restRequest("/users", {
+      method: "POST",
+      preferReturn: true,
+      body: JSON.stringify({
+        auth_id: authId,
+        username: displayName,
+        role: ROLES.USER,
+        tier: TIERS.Creator
+      })
+    });
+    user = created[0];
+  } else if (displayName && user.username !== displayName) {
+    try {
+      user = await updateUser(user.id, { username: displayName });
+    } catch (error) {
+      // Ignore username updates that conflict.
+    }
+  }
+  return user;
+}
+
+async function refreshProfile(session = null) {
+  const supabase = getSupabaseClient();
+  let resolvedSession = session;
+  if (!resolvedSession) {
+    const { data } = await supabase.auth.getSession();
+    resolvedSession = data.session;
+  }
+  currentAuthUser = resolvedSession?.user || null;
+  currentAuthToken = resolvedSession?.access_token || null;
+  if (currentAuthUser) {
+    currentProfile = await ensureUserProfile(currentAuthUser);
+  } else {
+    currentProfile = null;
+  }
+  return currentProfile;
 }
 
 async function updateUser(id, payload) {
@@ -290,16 +328,17 @@ async function initPricingPage() {
   if (!buttons.length) return;
 
   buttons.forEach((button) => {
+    if (button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
     button.addEventListener("click", async () => {
       const plan = button.getAttribute("data-plan");
-      const session = getSession();
-      if (!session) {
+      if (!currentProfile) {
         showToast("Login required to activate a plan.");
         return;
       }
       try {
-        const updated = await updateUser(session.id, { tier: plan });
-        setSession(updated);
+        const updated = await updateUser(currentProfile.id, { tier: plan });
+        currentProfile = updated;
         renderAccountSummary();
         showToast(`Plan updated to ${plan}.`);
       } catch (error) {
@@ -310,30 +349,24 @@ async function initPricingPage() {
 }
 
 function initAccountPage() {
-  const form = document.querySelector("#login-form");
-  if (!form) return;
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const username = form.querySelector("input[name='username']").value.trim();
-    if (!username) {
-      showToast("Enter a username to continue.");
-      return;
-    }
-    try {
-      let user = await fetchUserByUsername(username);
-      if (!user) {
-        user = await createUser(username);
+  const loginBtn = document.querySelector("#discord-login");
+  if (!loginBtn) return;
+  if (loginBtn.dataset.bound !== "true") {
+    loginBtn.dataset.bound = "true";
+    loginBtn.addEventListener("click", async () => {
+      try {
+        const supabase = getSupabaseClient();
+        await supabase.auth.signInWithOAuth({
+          provider: "discord",
+          options: {
+            redirectTo: `${window.location.origin}/account.html`
+          }
+        });
+      } catch (error) {
+        showToast("Unable to start Discord login.");
       }
-      setSession(user);
-      form.reset();
-      renderAccountSummary();
-      renderAdminPanel();
-      showToast(`Welcome back, ${user.username}.`);
-    } catch (error) {
-      showToast("Unable to sign in.");
-    }
-  });
+    });
+  }
 
   renderAccountSummary();
   renderAdminPanel();
@@ -343,8 +376,7 @@ function renderAccountSummary() {
   const summary = document.querySelector("#account-summary");
   const loginState = document.querySelector("#login-state");
   if (!summary || !loginState) return;
-  const session = getSession();
-  if (!session) {
+  if (!currentProfile) {
     summary.innerHTML = "";
     loginState.classList.remove("hidden");
     return;
@@ -353,27 +385,35 @@ function renderAccountSummary() {
   summary.innerHTML = `
     <div class="panel">
       <h2>Account Overview</h2>
-      <p><strong>Username:</strong> ${session.username}</p>
-      <p><strong>Role:</strong> ${session.role}</p>
-      <p><strong>Subscription:</strong> ${session.tier}</p>
+      <p><strong>Username:</strong> ${currentProfile.username}</p>
+      <p><strong>Role:</strong> ${currentProfile.role}</p>
+      <p><strong>Subscription:</strong> ${currentProfile.tier}</p>
       <button class="btn btn-outline" id="logout-btn">Logout</button>
     </div>
   `;
 
   const logoutBtn = summary.querySelector("#logout-btn");
-  logoutBtn.addEventListener("click", () => {
-    setSession(null);
-    renderAccountSummary();
-    renderAdminPanel();
-    showToast("Logged out.");
+  logoutBtn.addEventListener("click", async () => {
+    try {
+      const supabase = getSupabaseClient();
+      await supabase.auth.signOut();
+      currentProfile = null;
+      currentAuthUser = null;
+      currentAuthToken = null;
+      renderAccountSummary();
+      renderAdminPanel();
+      showToast("Logged out.");
+    } catch (error) {
+      showToast("Unable to log out.");
+    }
   });
 }
 
 async function renderAdminPanel() {
   const panel = document.querySelector("#admin-panel");
   if (!panel) return;
-  const session = getSession();
-  if (!session || session.role !== ROLES.ADMIN) {
+  const profile = currentProfile;
+  if (!profile || profile.role !== ROLES.ADMIN) {
     panel.innerHTML = "";
     return;
   }
@@ -422,8 +462,8 @@ async function renderAdminPanel() {
         const value = event.target.value;
         try {
           const updated = await updateUser(userId, { [field]: value });
-          if (session.id === updated.id) {
-            setSession(updated);
+          if (profile.id === updated.id) {
+            currentProfile = updated;
             renderAccountSummary();
           }
           showToast("User updated.");
@@ -442,14 +482,14 @@ async function initUploadPage() {
   const form = document.querySelector("#upload-form");
   if (!state || !form) return;
 
-  const session = getSession();
-  if (!session) {
+  const profile = currentProfile;
+  if (!profile) {
     state.innerHTML = `<div class="status-message">Login required to upload assets.</div>`;
     form.classList.add("hidden");
     return;
   }
 
-  if (![ROLES.UPLOAD, ROLES.ADMIN].includes(session.role)) {
+  if (![ROLES.UPLOAD, ROLES.ADMIN].includes(profile.role)) {
     state.innerHTML = `<div class="status-message">Upload role required to publish assets.</div>`;
     form.classList.add("hidden");
     return;
@@ -457,6 +497,9 @@ async function initUploadPage() {
 
   state.innerHTML = "";
   form.classList.remove("hidden");
+
+  if (form.dataset.bound === "true") return;
+  form.dataset.bound = "true";
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -476,10 +519,10 @@ async function initUploadPage() {
       const filePath = await storageUpload(
         config.assetsBucket,
         assetFile.files[0],
-        `users/${session.id}`
+        `users/${profile.id}`
       );
       const previewPath = previewInput.files[0]
-        ? await storageUpload(config.previewsBucket, previewInput.files[0], `users/${session.id}`)
+        ? await storageUpload(config.previewsBucket, previewInput.files[0], `users/${profile.id}`)
         : null;
 
       await restRequest("/assets", {
@@ -494,7 +537,7 @@ async function initUploadPage() {
           file_type: assetFile.files[0].type || "application/octet-stream",
           file_size: assetFile.files[0].size,
           preview_path: previewPath,
-          uploader_id: session.id
+          uploader_id: profile.id
         })
       });
 
@@ -513,8 +556,8 @@ async function initAssetsPage() {
 
   try {
     const assets = await fetchAssets();
-    const session = getSession();
-    const tier = session ? session.tier : null;
+    const profile = currentProfile;
+    const tier = profile ? profile.tier : null;
     const config = getConfig();
 
     if (!assets.length && emptyState) {
@@ -524,7 +567,7 @@ async function initAssetsPage() {
     grid.innerHTML = assets
       .map((asset, index) => {
         const canAccess = hasTierAccess(tier, asset.tier);
-        const needsLogin = !session;
+        const needsLogin = !profile;
         const tierClass =
           asset.tier === TIERS.CreatorPlusPlus
             ? "tier-creator-plus-plus"
@@ -580,18 +623,43 @@ async function initAssetsPage() {
   }
 }
 
-function initPage() {
+async function initPage() {
   initNav();
+
+  try {
+    getSupabaseClient();
+    await refreshProfile();
+  } catch (error) {
+    showToast("Supabase configuration missing.");
+  }
+
   initPricingPage();
   initAccountPage();
-  initUploadPage();
-  initAssetsPage();
+  await initUploadPage();
+  await initAssetsPage();
+
   const isHome = document.body.dataset.page === "home";
   if (isHome) {
     initHomeLoader();
   } else {
     initFadeIn();
   }
+
+  try {
+    const supabase = getSupabaseClient();
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      await refreshProfile(session);
+      renderAccountSummary();
+      renderAdminPanel();
+      initPricingPage();
+      initUploadPage();
+      initAssetsPage();
+    });
+  } catch (error) {
+    // Ignore if Supabase is not configured.
+  }
 }
 
-document.addEventListener("DOMContentLoaded", initPage);
+document.addEventListener("DOMContentLoaded", () => {
+  initPage();
+});
